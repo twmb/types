@@ -3,6 +3,7 @@
 package types
 
 import (
+	"fmt"
 	"math"
 	"reflect"
 	"sort"
@@ -245,6 +246,10 @@ func c128lt(l, r complex128) (lt, eq bool) {
 // Sort deeply sorts any slice anywhere within s, traversing into maps, slices,
 // and exported struct fields. Any non-primitive type is less than the other
 // following the rules of Less.
+//
+// Note that this function performs value copies. This must not be used to sort
+// types that are not safe to copy. For example, this must not sort
+// []struct{sync.Mutex}, but it can sort []*struct{sync.Mutex}.
 func Sort(s interface{}) {
 	innerSort(reflect.ValueOf(s))
 }
@@ -338,4 +343,39 @@ start:
 		return false
 	}
 	return true
+}
+
+// DistinctInPlace accepts a *[]T, sorts it using the rules of Sort in this
+// package, and compacts it in place using the rules of Equal in this package.
+//
+// This is similar to the slice generic version of sorting and compacting, but
+// allows for even more types to be sorted.
+//
+// NOTE: When generics are released, this will change to be a func(*[]T). This
+// will be a non-breaking change to anything that does not use this function
+// for a variable of type func(interface{}).
+func DistinctInPlace(sliceptr interface{}) {
+	v := reflect.ValueOf(sliceptr)
+	if v.Type().Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Slice {
+		panic(fmt.Sprintf("DistinctInPlace: invalid non *[]T type %v", v.Type()))
+	}
+	v = v.Elem()
+	innerSort(v)
+	if v.Len() == 0 {
+		return
+	}
+	var last int
+	lastv := v.Index(last)
+	for next := 1; next < v.Len(); next++ {
+		nextv := v.Index(next)
+		if _, eq := lteq(lastv, nextv); eq {
+			continue
+		}
+		last++
+		lastv = v.Index(last)
+		if last != next {
+			lastv.Set(nextv)
+		}
+	}
+	v.Set(v.Slice(0, last+1))
 }
