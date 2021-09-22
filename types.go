@@ -7,6 +7,7 @@ import (
 	"math"
 	"reflect"
 	"sort"
+	"unsafe"
 )
 
 // Less returns whether l is deeply less than r. The input values must have the
@@ -103,42 +104,31 @@ func lteq(lv, rv reflect.Value) (lt, eq bool) {
 
 func lteqKind(k reflect.Kind, lv, rv reflect.Value) (lt, eq bool) {
 start:
-	l, r := lv.Interface(), rv.Interface()
 	switch k {
 	case reflect.Bool:
-		l, r := l.(bool), r.(bool)
+		l, r := lv.Bool(), rv.Bool()
 		return !l && r, l == r
-	case reflect.Int:
-		return i64lt(int64(l.(int)), int64(r.(int)))
-	case reflect.Int8:
-		return i64lt(int64(l.(int8)), int64(r.(int8)))
-	case reflect.Int16:
-		return i64lt(int64(l.(int16)), int64(r.(int16)))
-	case reflect.Int32:
-		return i64lt(int64(l.(int32)), int64(r.(int32)))
-	case reflect.Int64:
-		return i64lt(l.(int64), r.(int64))
-	case reflect.Uint:
-		return u64lt(uint64(l.(uint)), uint64(r.(uint)))
-	case reflect.Uint8:
-		return u64lt(uint64(l.(uint8)), uint64(r.(uint8)))
-	case reflect.Uint16:
-		return u64lt(uint64(l.(uint16)), uint64(r.(uint16)))
-	case reflect.Uint32:
-		return u64lt(uint64(l.(uint32)), uint64(r.(uint32)))
-	case reflect.Uint64:
-		return u64lt(l.(uint64), r.(uint64))
-	case reflect.Uintptr:
-		return u64lt(uint64(l.(uintptr)), uint64(r.(uintptr)))
-	case reflect.Float32:
-		return f64lt(float64(l.(float32)), float64(r.(float32)))
-	case reflect.Float64:
-		return f64lt(l.(float64), r.(float64))
-	case reflect.Complex64:
-		return c128lt(complex128(l.(complex64)), complex128(r.(complex64)))
-	case reflect.Complex128:
-		return c128lt(l.(complex128), r.(complex128))
-	case reflect.Array, reflect.Slice:
+	case reflect.Int,
+		reflect.Int8,
+		reflect.Int16,
+		reflect.Int32,
+		reflect.Int64:
+		return i64lt(lv.Int(), rv.Int())
+	case reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr:
+		return u64lt(lv.Uint(), rv.Uint())
+	case reflect.Float32,
+		reflect.Float64:
+		return f64lt(lv.Float(), rv.Float())
+	case reflect.Complex64,
+		reflect.Complex128:
+		return c128lt(lv.Complex(), rv.Complex())
+	case reflect.Array,
+		reflect.Slice:
 		ll, lr := lv.Len(), rv.Len()
 		lt, eq = ll < lr, ll == lr
 		if eq {
@@ -153,8 +143,10 @@ start:
 	case reflect.Chan:
 		ll, lr := lv.Len(), rv.Len()
 		return ll < lr, ll == lr
-	case reflect.Func, reflect.Interface, reflect.UnsafePointer:
-		return false, l == r
+	case reflect.Func,
+		reflect.Interface,
+		reflect.UnsafePointer:
+		return false, lv.Interface() == rv.Interface()
 	case reflect.Map:
 		ll, lr := lv.Len(), rv.Len()
 		lt, eq = ll < lr, ll == lr
@@ -194,7 +186,7 @@ start:
 		k = lv.Type().Kind()
 		goto start
 	case reflect.String:
-		l, r := l.(string), r.(string)
+		l, r := lv.String(), rv.String()
 		return l < r, l == r
 	case reflect.Struct:
 		return lteq(lv, rv)
@@ -254,6 +246,12 @@ func Sort(s interface{}) {
 	innerSort(reflect.ValueOf(s))
 }
 
+func setSlice(v reflect.Value, h *reflect.SliceHeader) {
+	h.Data = uintptr(unsafe.Pointer(v.Pointer()))
+	h.Len = v.Len()
+	h.Cap = v.Len()
+}
+
 func innerSort(v reflect.Value) (sortable bool) {
 start:
 	t := v.Type()
@@ -272,55 +270,70 @@ start:
 		fallthrough
 
 	case reflect.Slice:
-		slice := v.Slice(0, v.Len()).Interface()
+		v = v.Slice(0, v.Len())
 		switch t.Elem().Kind() {
 		case reflect.Bool:
-			slice := slice.([]bool)
+			var slice []bool
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return !slice[i] && slice[j] })
 		case reflect.Int:
-			slice := slice.([]int)
+			var slice []int
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Int8:
-			slice := slice.([]int8)
+			var slice []int8
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Int16:
-			slice := slice.([]int16)
+			var slice []int16
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Int32:
-			slice := slice.([]int32)
+			var slice []int32
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Int64:
-			slice := slice.([]int64)
+			var slice []int64
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Uint:
-			slice := slice.([]uint)
+			var slice []uint
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Uint8:
-			slice := slice.([]uint8)
+			var slice []uint8
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Uint16:
-			slice := slice.([]uint16)
+			var slice []uint16
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Uint32:
-			slice := slice.([]uint32)
+			var slice []uint32
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Uint64:
-			slice := slice.([]uint64)
+			var slice []uint64
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Uintptr:
-			slice := slice.([]uintptr)
+			var slice []uintptr
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Float32:
-			slice := slice.([]float32)
+			var slice []float32
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.Float64:
-			slice := slice.([]float64)
+			var slice []float64
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		case reflect.String:
-			slice := slice.([]string)
+			var slice []string
+			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		default:
-			sort.Slice(slice, func(i, j int) bool { lt, _ := lteq(v.Index(i), v.Index(j)); return lt })
+			sort.Slice(v.Interface(), func(i, j int) bool { lt, _ := lteq(v.Index(i), v.Index(j)); return lt })
 		}
 	case reflect.Map:
 		iter := v.MapRange()
