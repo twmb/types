@@ -17,7 +17,8 @@ import (
 // the comparison field. If every field is equal, this returns false. Only
 // public fields are compared.
 //
-// Nil pointers are less than non-nil pointers.
+// Nil pointers are less than non-nil pointers. Recursive types compare less
+// following all other rules, or if they recurse sooner.
 //
 // Slices are less if they are shorter, or if each element in order is less
 // than or equal to the other. If all elements are equal and the sizes are
@@ -37,7 +38,7 @@ import (
 //
 // Functions, interfaces, and unsafe pointers are never less than each other.
 func Less(l, r interface{}) bool {
-	lt, _ := lteq(reflect.ValueOf(l), reflect.ValueOf(r))
+	lt, _ := lteq(newPointers(), reflect.ValueOf(l), reflect.ValueOf(r))
 	return lt
 }
 
@@ -47,7 +48,8 @@ func Less(l, r interface{}) bool {
 // Structs are deeply equal if each field is equal. Unlike reflect, this
 // function compares only public fields.
 //
-// Nil pointers are equal to nil pointers.
+// Nil pointers are equal to nil pointers. Recursive types are equal following
+// all other rules, or if they recurse at the same time.
 //
 // Slices are equal if they have the same length and each element is deeply
 // equal.
@@ -65,14 +67,14 @@ func Less(l, r interface{}) bool {
 // Functions, interfaces, and unsafe pointers equal if their pointers are
 // equal.
 func Equal(l, r interface{}) bool {
-	_, eq := lteq(reflect.ValueOf(l), reflect.ValueOf(r))
+	_, eq := lteq(newPointers(), reflect.ValueOf(l), reflect.ValueOf(r))
 	return eq
 }
 
 // Compare returns whether l is less than, equal to, or larger than r,
 // following the same rules as Less and Equal.
 func Compare(l, r interface{}) int {
-	lt, eq := lteq(reflect.ValueOf(l), reflect.ValueOf(r))
+	lt, eq := lteq(newPointers(), reflect.ValueOf(l), reflect.ValueOf(r))
 	if lt {
 		return -1
 	} else if eq {
@@ -81,14 +83,36 @@ func Compare(l, r interface{}) int {
 	return 1
 }
 
-func lteq(lv, rv reflect.Value) (lt, eq bool) {
+type pointers map[unsafe.Pointer]struct{}
+
+func newPointers() *pointers {
+	var p pointers
+	return &p
+}
+
+func (p *pointers) hasOrAdd(ptr unsafe.Pointer) bool {
+	if *p == nil {
+		*p = make(map[unsafe.Pointer]struct{})
+	}
+	_, has := (*p)[ptr]
+	if !has {
+		(*p)[ptr] = struct{}{}
+	}
+	return has
+}
+
+func (p pointers) remove(ptr unsafe.Pointer) {
+	delete(p, ptr)
+}
+
+func lteq(p *pointers, lv, rv reflect.Value) (lt, eq bool) {
 	t := lv.Type()
 	if t != rv.Type() {
 		panic("unequal types")
 	}
 
 	if k := t.Kind(); k != reflect.Struct {
-		return lteqKind(k, lv, rv)
+		return lteqKind(p, k, lv, rv)
 	}
 
 	for i := 0; i < t.NumField(); i++ {
@@ -97,7 +121,7 @@ func lteq(lv, rv reflect.Value) (lt, eq bool) {
 			continue
 		}
 
-		lt, eq := lteqKind(sf.Type.Kind(), lv.Field(i), rv.Field(i))
+		lt, eq := lteqKind(p, sf.Type.Kind(), lv.Field(i), rv.Field(i))
 		if !eq {
 			return lt, false
 		}
@@ -106,8 +130,7 @@ func lteq(lv, rv reflect.Value) (lt, eq bool) {
 	return false, true
 }
 
-func lteqKind(k reflect.Kind, lv, rv reflect.Value) (lt, eq bool) {
-start:
+func lteqKind(p *pointers, k reflect.Kind, lv, rv reflect.Value) (lt, eq bool) {
 	switch k {
 	case reflect.Bool:
 		l, r := lv.Bool(), rv.Bool()
@@ -131,19 +154,6 @@ start:
 	case reflect.Complex64,
 		reflect.Complex128:
 		return c128lt(lv.Complex(), rv.Complex())
-	case reflect.Array,
-		reflect.Slice:
-		ll, lr := lv.Len(), rv.Len()
-		lt, eq = ll < lr, ll == lr
-		if eq {
-			for i := 0; i < lr; i++ {
-				lt, eq = lteq(lv.Index(i), rv.Index(i))
-				if !eq {
-					return lt, false
-				}
-			}
-		}
-		return lt, eq
 	case reflect.Chan:
 		ll, lr := lv.Len(), rv.Len()
 		return ll < lr, ll == lr
@@ -151,6 +161,26 @@ start:
 		reflect.Interface,
 		reflect.UnsafePointer:
 		return false, lv.Interface() == rv.Interface()
+	case reflect.String:
+		l, r := lv.String(), rv.String()
+		return l < r, l == r
+	case reflect.Struct:
+		return lteq(p, lv, rv)
+
+	case reflect.Array,
+		reflect.Slice:
+		ll, lr := lv.Len(), rv.Len()
+		lt, eq = ll < lr, ll == lr
+		if eq {
+			for i := 0; i < lr; i++ {
+				lt, eq = lteq(p, lv.Index(i), rv.Index(i))
+				if !eq {
+					return lt, false
+				}
+			}
+		}
+		return lt, eq
+
 	case reflect.Map:
 		ll, lr := lv.Len(), rv.Len()
 		lt, eq = ll < lr, ll == lr
@@ -162,14 +192,14 @@ start:
 				rkeys,
 			} {
 				sort.Slice(keys, func(i, j int) bool {
-					lt, _ := lteq(keys[i], keys[j])
+					lt, _ := lteq(p, keys[i], keys[j])
 					return lt
 				})
 			}
 
 			for i, lk := range lkeys {
 				rk := rkeys[i]
-				lt, eq = lteq(lk, rk)
+				lt, eq = lteq(p, lk, rk)
 				if !eq {
 					return lt, false
 				}
@@ -178,28 +208,41 @@ start:
 			for iter.Next() {
 				lv := iter.Value()
 				rv := rv.MapIndex(iter.Key())
-				lt, eq = lteq(lv, rv)
+				lt, eq = lteq(p, lv, rv)
 				if !eq {
 					return lt, false
 				}
 			}
 		}
 		return lt, eq
+
 	case reflect.Ptr:
 		if lv.IsNil() {
 			return !rv.IsNil(), rv.IsNil()
-		}
-		if rv.IsNil() {
+		} else if rv.IsNil() {
 			return false, false
 		}
+
+		lptr, rptr := unsafe.Pointer(lv.Pointer()), unsafe.Pointer(rv.Pointer())
+		lhas, rhas := p.hasOrAdd(lptr), p.hasOrAdd(rptr)
+		if !lhas {
+			defer p.remove(lptr)
+		}
+		if !rhas {
+			defer p.remove(rptr)
+		}
+
+		if lhas {
+			return !rhas, rhas
+		} else if rhas {
+			return false, false
+		}
+
 		lv, rv = reflect.Indirect(lv), reflect.Indirect(rv)
 		k = lv.Type().Kind()
-		goto start
-	case reflect.String:
-		l, r := lv.String(), rv.String()
-		return l < r, l == r
-	case reflect.Struct:
-		return lteq(lv, rv)
+
+		return lteqKind(p, k, lv, rv)
+
 	default:
 		return false, false // reflect.Invalid
 	}
@@ -253,7 +296,7 @@ func c128lt(l, r complex128) (lt, eq bool) {
 // types that are not safe to copy. For example, this must not sort
 // []struct{sync.Mutex}, but it can sort []*struct{sync.Mutex}.
 func Sort(s interface{}) {
-	innerSort(reflect.ValueOf(s))
+	innerSort(newPointers(), reflect.ValueOf(s))
 }
 
 func setSlice(v reflect.Value, h *reflect.SliceHeader) {
@@ -262,16 +305,20 @@ func setSlice(v reflect.Value, h *reflect.SliceHeader) {
 	h.Cap = v.Len()
 }
 
-func innerSort(v reflect.Value) (sortable bool) {
-start:
+func innerSort(p *pointers, v reflect.Value) (sortable bool) {
 	t := v.Type()
 	switch v.Type().Kind() {
 	case reflect.Ptr:
 		if v.IsNil() {
 			return true
 		}
-		v = reflect.Indirect(v)
-		goto start
+		ptr := unsafe.Pointer(v.Pointer())
+		has := p.hasOrAdd(ptr)
+		if has {
+			return true
+		}
+		defer p.remove(ptr)
+		return innerSort(p, reflect.Indirect(v))
 	case reflect.Array:
 		if v.Len() == 0 {
 			return true
@@ -346,12 +393,12 @@ start:
 			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		default:
-			sort.Slice(v.Interface(), func(i, j int) bool { lt, _ := lteq(v.Index(i), v.Index(j)); return lt })
+			sort.Slice(v.Interface(), func(i, j int) bool { lt, _ := lteq(p, v.Index(i), v.Index(j)); return lt })
 		}
 	case reflect.Map:
 		iter := v.MapRange()
 		for iter.Next() {
-			sortable = innerSort(iter.Value())
+			sortable = innerSort(p, iter.Value())
 			if !sortable {
 				break
 			}
@@ -363,7 +410,7 @@ start:
 			if sf.PkgPath != "" {
 				continue
 			}
-			innerSort(v.Field(i))
+			innerSort(p, v.Field(i))
 		}
 	default:
 		return false
@@ -386,7 +433,8 @@ func DistinctInPlace(sliceptr interface{}) {
 		panic(fmt.Sprintf("DistinctInPlace: invalid non *[]T type %v", v.Type()))
 	}
 	v = v.Elem()
-	innerSort(v)
+	p := newPointers()
+	innerSort(p, v)
 	if v.Len() == 0 {
 		return
 	}
@@ -394,7 +442,7 @@ func DistinctInPlace(sliceptr interface{}) {
 	lastv := v.Index(last)
 	for next := 1; next < v.Len(); next++ {
 		nextv := v.Index(next)
-		if _, eq := lteq(lastv, nextv); eq {
+		if _, eq := lteq(p, lastv, nextv); eq {
 			continue
 		}
 		last++

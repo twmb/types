@@ -6,6 +6,36 @@ import (
 	"testing"
 )
 
+type recursive struct {
+	Inner []*recursive
+}
+
+func newRecursive(depth int) recursive {
+	var r recursive
+	inner := &r.Inner
+	for i := 0; i < depth-1; i++ {
+		*inner = []*recursive{new(recursive)}
+		inner = &((*inner)[0].Inner)
+	}
+	*inner = []*recursive{&r}
+	return r
+}
+
+type recursive2 struct {
+	Inner *recursive2
+}
+
+func newRecursive2(depth int) recursive2 {
+	var r recursive2
+	inner := &r.Inner
+	for i := 0; i < depth-1; i++ {
+		*inner = new(recursive2)
+		inner = &((*inner).Inner)
+	}
+	*inner = &r
+	return r
+}
+
 func TestLessEqual(t *testing.T) {
 	for _, test := range []struct {
 		l     interface{}
@@ -209,6 +239,14 @@ func TestLessEqual(t *testing.T) {
 		{(*int)(nil), (*int)(nil), false, true},
 		{new(int), (*int)(nil), false, false},
 
+		{newRecursive(1), newRecursive(2), true, false},
+		{newRecursive(1), newRecursive(1), false, true},
+		{newRecursive(2), newRecursive(1), false, false},
+
+		{newRecursive2(1), newRecursive2(2), true, false},
+		{newRecursive2(1), newRecursive2(1), false, true},
+		{newRecursive2(2), newRecursive2(1), false, false},
+
 		{&struct {
 			F int
 			G bool
@@ -348,7 +386,7 @@ func TestSort(t *testing.T) {
 	}
 }
 
-func TestDistinctInplace(t *testing.T) {
+func TestDistinctInplaceInts(t *testing.T) {
 	for _, test := range []struct {
 		in  []int
 		exp []int
@@ -389,4 +427,17 @@ func TestDistinctInplace(t *testing.T) {
 			t.Errorf("got %v != exp %v", test.in, test.exp)
 		}
 	}
+}
+
+func TestDistinctInPlaceRecursive(t *testing.T) {
+	in := []recursive{newRecursive(3), newRecursive(1), newRecursive(1), newRecursive(1), newRecursive(3)}
+	exp := []recursive{newRecursive(3), newRecursive(1)}
+	DistinctInPlace(&in)
+	if !reflect.DeepEqual(in, exp) {
+		// DeepEqual doesn't actually compare as good as we need, but
+		// manual checking confirms what we expect.
+		t.Errorf("got %v != exp %v", in, exp)
+	}
+	Sort(newRecursive(5))
+	Sort(newRecursive2(5))
 }
