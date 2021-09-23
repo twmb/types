@@ -93,7 +93,7 @@ func lteq(lv, rv reflect.Value) (lt, eq bool) {
 
 	for i := 0; i < t.NumField(); i++ {
 		sf := t.Field(i)
-		if !sf.IsExported() {
+		if sf.PkgPath != "" {
 			continue
 		}
 
@@ -360,7 +360,7 @@ start:
 	case reflect.Struct:
 		for i := 0; i < t.NumField(); i++ {
 			sf := t.Field(i)
-			if !sf.IsExported() {
+			if sf.PkgPath != "" {
 				continue
 			}
 			innerSort(v.Field(i))
