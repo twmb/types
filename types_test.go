@@ -205,6 +205,10 @@ func TestLessEqual(t *testing.T) {
 		},
 
 		// Ptr / struct.
+		{(*int)(nil), new(int), true, false},
+		{(*int)(nil), (*int)(nil), false, true},
+		{new(int), (*int)(nil), false, false},
+
 		{&struct {
 			F int
 			G bool
@@ -286,6 +290,8 @@ func TestSort(t *testing.T) {
 		{[]float32{2, 3, 4, 1}, []float32{1, 2, 3, 4}},
 		{[]float64{2, 3, 4, 1}, []float64{1, 2, 3, 4}},
 		{[]string{"foo", "bar", "baz"}, []string{"bar", "baz", "foo"}},
+		{[]*int{nil, nil}, []*int{nil, nil}},
+		{(*int)(nil), (*int)(nil)},
 
 		{
 			[]struct {

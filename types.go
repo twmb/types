@@ -17,6 +17,8 @@ import (
 // the comparison field. If every field is equal, this returns false. Only
 // public fields are compared.
 //
+// Nil pointers are less than non-nil pointers.
+//
 // Slices are less if they are shorter, or if each element in order is less
 // than or equal to the other. If all elements are equal and the sizes are
 // equal, this returns false.
@@ -44,6 +46,8 @@ func Less(l, r interface{}) bool {
 //
 // Structs are deeply equal if each field is equal. Unlike reflect, this
 // function compares only public fields.
+//
+// Nil pointers are equal to nil pointers.
 //
 // Slices are equal if they have the same length and each element is deeply
 // equal.
@@ -182,6 +186,12 @@ start:
 		}
 		return lt, eq
 	case reflect.Ptr:
+		if lv.IsNil() {
+			return !rv.IsNil(), rv.IsNil()
+		}
+		if rv.IsNil() {
+			return false, false
+		}
 		lv, rv = reflect.Indirect(lv), reflect.Indirect(rv)
 		k = lv.Type().Kind()
 		goto start
@@ -257,6 +267,9 @@ start:
 	t := v.Type()
 	switch v.Type().Kind() {
 	case reflect.Ptr:
+		if v.IsNil() {
+			return true
+		}
 		v = reflect.Indirect(v)
 		goto start
 	case reflect.Array:
