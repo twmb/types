@@ -307,7 +307,7 @@ func setSlice(v reflect.Value, h *reflect.SliceHeader) {
 
 func innerSort(p *pointers, v reflect.Value) (sortable bool) {
 	t := v.Type()
-	switch v.Type().Kind() {
+	switch t.Kind() {
 	case reflect.Ptr:
 		if v.IsNil() {
 			return true
@@ -394,6 +394,14 @@ func innerSort(p *pointers, v reflect.Value) (sortable bool) {
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
 		default:
 			sort.Slice(v.Interface(), func(i, j int) bool { lt, _ := lteq(p, v.Index(i), v.Index(j)); return lt })
+
+			// Each element of this **top** level slice is sorted,
+			// but now we have to sort each element's innards.
+			for i := 0; i < v.Len(); i++ {
+				if !innerSort(p, v.Index(i)) {
+					break
+				}
+			}
 		}
 	case reflect.Map:
 		iter := v.MapRange()
