@@ -295,6 +295,9 @@ func c128lt(l, r complex128) (lt, eq bool) {
 // Note that this function performs value copies. This must not be used to sort
 // types that are not safe to copy. For example, this must not sort
 // []struct{sync.Mutex}, but it can sort []*struct{sync.Mutex}.
+//
+// If a slice contains a type that has a Less method that takes accepts itself
+// and returns a bool, Sort uses that type's Less method to sort the slice.
 func Sort(s interface{}) {
 	innerSort(newPointers(), reflect.ValueOf(s))
 }
@@ -331,6 +334,10 @@ func innerSort(p *pointers, v reflect.Value) (sortable bool) {
 
 	case reflect.Slice:
 		v = v.Slice(0, v.Len())
+		if v.Len() == 0 {
+			return true
+		}
+
 		switch t.Elem().Kind() {
 		case reflect.Bool:
 			var slice []bool
@@ -392,6 +399,27 @@ func innerSort(p *pointers, v reflect.Value) (sortable bool) {
 			var slice []string
 			setSlice(v, (*reflect.SliceHeader)(unsafe.Pointer(&slice)))
 			sort.Slice(slice, func(i, j int) bool { return slice[i] < slice[j] })
+
+		case reflect.Struct, reflect.Interface:
+			v0 := v.Index(0)
+			t0 := v0.Type()
+			for lessidx := 0; lessidx < t0.NumMethod(); lessidx++ {
+				if meth := t0.Method(lessidx); meth.Name == "Less" {
+					less := v0.Method(lessidx)
+					tless := less.Type()
+					if tless.NumIn() == 1 && tless.NumOut() == 1 && tless.In(0) == t0 && tless.Out(0) == reflect.TypeOf(false) {
+						vslice := make([]reflect.Value, 1)
+						sort.Slice(v.Interface(), func(i, j int) bool {
+							vslice[0] = v.Index(j)
+							return v.Index(i).Method(lessidx).Call(vslice)[0].Bool()
+						})
+						return true
+					}
+					break // found Less, but types are wrong
+				}
+			}
+			fallthrough
+
 		default:
 			// Each element of this **top** level slice is sorted,
 			// but now we have to sort each element's innards. We
@@ -404,8 +432,8 @@ func innerSort(p *pointers, v reflect.Value) (sortable bool) {
 			}
 
 			sort.Slice(v.Interface(), func(i, j int) bool { lt, _ := lteq(p, v.Index(i), v.Index(j)); return lt })
-
 		}
+
 	case reflect.Map:
 		iter := v.MapRange()
 		for iter.Next() {

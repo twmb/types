@@ -3,6 +3,7 @@ package types
 import (
 	"math"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -399,6 +400,15 @@ func TestSort(t *testing.T) {
 			},
 		},
 
+		{
+			[]tless{{3}, {2}, {1}},
+			[]tless{{1}, {2}, {3}},
+		},
+		{
+			[]Lesser{&tless2{3}, &tless2{2}, &tless2{1}},
+			[]Lesser{&tless2{1}, &tless2{2}, &tless2{3}},
+		},
+
 		//
 	} {
 		Sort(test.in)
@@ -407,6 +417,22 @@ func TestSort(t *testing.T) {
 		}
 	}
 }
+
+type tless struct {
+	v int
+}
+
+func (t tless) Less(o tless) bool { return t.v < o.v }
+
+type Lesser interface {
+	Less(Lesser) bool
+}
+
+type tless2 struct {
+	v int
+}
+
+func (t *tless2) Less(o Lesser) bool { return t.v < o.(*tless2).v }
 
 func TestDistinctInplaceInts(t *testing.T) {
 	for _, test := range []struct {
@@ -462,4 +488,49 @@ func TestDistinctInPlaceRecursive(t *testing.T) {
 	}
 	Sort(newRecursive(5))
 	Sort(newRecursive2(5))
+}
+
+func BenchmarkSortLess(b *testing.B) {
+	var l []tless
+	for i := 0; i < 1000; i++ {
+		l = append(l, tless{i})
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Sort(l)
+	}
+}
+
+func BenchmarkSortLessReal(b *testing.B) {
+	var l []tless
+	for i := 0; i < 1000; i++ {
+		l = append(l, tless{i})
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sort.Slice(l, func(i, j int) bool { return l[i].v < l[j].v })
+	}
+}
+
+func BenchmarkSortStruct(b *testing.B) {
+	type l struct{ V int }
+	var ls []l
+	for i := 0; i < 1000; i++ {
+		ls = append(ls, l{i})
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Sort(ls)
+	}
+}
+
+func BenchmarkSortInts(b *testing.B) {
+	var is []int
+	for i := 0; i < 1000; i++ {
+		is = append(is, i)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Sort(is)
+	}
 }
