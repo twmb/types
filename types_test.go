@@ -377,6 +377,28 @@ func TestSort(t *testing.T) {
 			},
 		},
 
+		// Nested inner structs are also deeply sorted.
+		{
+			struct {
+				A []struct {
+					V []int
+				}
+			}{
+				A: []struct {
+					V []int
+				}{{[]int{3, 2, 1}}, {[]int{7, 2, 0}}, {[]int{}}},
+			},
+			struct {
+				A []struct {
+					V []int
+				}
+			}{
+				A: []struct {
+					V []int
+				}{{[]int{}}, {[]int{0, 2, 7}}, {[]int{1, 2, 3}}},
+			},
+		},
+
 		//
 	} {
 		Sort(test.in)
