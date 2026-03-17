@@ -3,7 +3,7 @@ package types
 import (
 	"math"
 	"reflect"
-	"sort"
+	"slices"
 	"testing"
 )
 
@@ -14,7 +14,7 @@ type recursive struct {
 func newRecursive(depth int) recursive {
 	var r recursive
 	inner := &r.Inner
-	for i := 0; i < depth-1; i++ {
+	for range depth - 1 {
 		*inner = []*recursive{new(recursive)}
 		inner = &((*inner)[0].Inner)
 	}
@@ -29,7 +29,7 @@ type recursive2 struct {
 func newRecursive2(depth int) recursive2 {
 	var r recursive2
 	inner := &r.Inner
-	for i := 0; i < depth-1; i++ {
+	for range depth - 1 {
 		*inner = new(recursive2)
 		inner = &((*inner).Inner)
 	}
@@ -39,8 +39,8 @@ func newRecursive2(depth int) recursive2 {
 
 func TestLessEqual(t *testing.T) {
 	for _, test := range []struct {
-		l     interface{}
-		r     interface{}
+		l     any
+		r     any
 		less  bool
 		equal bool
 	}{
@@ -291,23 +291,23 @@ func TestLessEqual(t *testing.T) {
 			t.Errorf("l %v r %v, got equal? %v, exp equal? %v", test.l, test.r, eq, test.equal)
 		}
 
-		cmp := Compare(test.l, test.r)
-		if test.less && cmp != -1 {
-			t.Errorf("l %v r %v, compare? %v, exp less? %v", test.l, test.r, cmp, test.less)
+		cmpResult := Compare(test.l, test.r)
+		if test.less && cmpResult != -1 {
+			t.Errorf("l %v r %v, compare? %v, exp less? %v", test.l, test.r, cmpResult, test.less)
 		}
-		if test.equal && cmp != 0 {
-			t.Errorf("l %v r %v, compare? %v, exp equal? %v", test.l, test.r, cmp, test.equal)
+		if test.equal && cmpResult != 0 {
+			t.Errorf("l %v r %v, compare? %v, exp equal? %v", test.l, test.r, cmpResult, test.equal)
 		}
-		if (!test.less && !test.equal) && cmp != 1 {
-			t.Errorf("l %v r %v, compare? %v, exp greater? %v", test.l, test.r, cmp, (!test.less && !test.equal))
+		if (!test.less && !test.equal) && cmpResult != 1 {
+			t.Errorf("l %v r %v, compare? %v, exp greater? %v", test.l, test.r, cmpResult, (!test.less && !test.equal))
 		}
 	}
 }
 
 func TestSort(t *testing.T) {
 	for _, test := range []struct {
-		in  interface{}
-		exp interface{}
+		in  any
+		exp any
 	}{
 		{3, 3},
 		{[...]int{2, 3, 4, 1}, [...]int{2, 3, 4, 1}}, // unaddressable, unsortable
@@ -352,8 +352,8 @@ func TestSort(t *testing.T) {
 			}{
 				A: []int{3, 2, 1},
 				B: map[string][]int{
-					"foo": []int{5, 4, 3, 2},
-					"bar": []int{2, 3, 4, 5},
+					"foo": {5, 4, 3, 2},
+					"bar": {2, 3, 4, 5},
 				},
 				C: map[string]string{
 					"a": "a",
@@ -368,8 +368,8 @@ func TestSort(t *testing.T) {
 			}{
 				A: []int{1, 2, 3},
 				B: map[string][]int{
-					"foo": []int{2, 3, 4, 5},
-					"bar": []int{2, 3, 4, 5},
+					"foo": {2, 3, 4, 5},
+					"bar": {2, 3, 4, 5},
 				},
 				C: map[string]string{
 					"a": "a",
@@ -492,45 +492,49 @@ func TestDistinctInPlaceRecursive(t *testing.T) {
 
 func BenchmarkSortLess(b *testing.B) {
 	var l []tless
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		l = append(l, tless{i})
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		Sort(l)
 	}
 }
 
 func BenchmarkSortLessReal(b *testing.B) {
 	var l []tless
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		l = append(l, tless{i})
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		sort.Slice(l, func(i, j int) bool { return l[i].v < l[j].v })
+	for b.Loop() {
+		slices.SortFunc(l, func(a, b tless) int {
+			if a.v < b.v {
+				return -1
+			}
+			if a.v > b.v {
+				return 1
+			}
+			return 0
+		})
 	}
 }
 
 func BenchmarkSortStruct(b *testing.B) {
 	type l struct{ V int }
 	var ls []l
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		ls = append(ls, l{i})
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		Sort(ls)
 	}
 }
 
 func BenchmarkSortInts(b *testing.B) {
 	var is []int
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		is = append(is, i)
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		Sort(is)
 	}
 }
